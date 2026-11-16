@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GAS OS カメラ</title>
+<style>
+html,body{margin:0;height:100%;background:#111;color:#fff;font:14px "Segoe UI","Meiryo UI",sans-serif}
+body{display:flex;flex-direction:column}
+video{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+.bar{display:flex;gap:6px;flex-wrap:wrap;padding:8px;background:#1d2b44}
+button,select{font-size:15px;padding:7px 12px;border-radius:5px;border:1px solid #6a86b3;background:#e8f0fb}
+button:disabled{opacity:.45}
+#st{padding:6px 10px;font-size:12px;color:#9cf;min-height:20px}
+</style></head><body>
+<video id="v" autoplay muted playsinline></video>
+<div class="bar">
+ <select id="q"><option value="low">超低画質</option><option value="high">高画質</option></select>
+ <button id="ph">📸 撮影</button><button id="rc">● 録画</button>
+ <button id="send" disabled>📤 OSに送る</button><button id="dl" disabled>💾 保存</button>
+</div>
+<div id="st">起動中…</div>
+<script>
+var $=function(i){return document.getElementById(i)},v=$('v'),stream=null,blob=null,kind='',ext='',rec=null,chunks=[],t0=0,rt=0;
+var mode=location.hash.slice(1)=='high'?'high':'low';$('q').value=mode;
+function st(m){$('st').textContent=m}
+function cons(){return mode=='high'?{video:{width:{ideal:1280},height:{ideal:720}},audio:false}:{video:{width:{ideal:240},height:{ideal:180},frameRate:{ideal:8}},audio:false}}
+function start(){
+  if(stream)stream.getTracks().forEach(function(t){t.stop()});
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){st('このブラウザーではカメラを使えません（https のページで開いてください）');return}
+  navigator.mediaDevices.getUserMedia(cons()).then(function(s){stream=s;v.srcObject=s;st('プレビュー中（'+(mode=='high'?'高画質':'超低画質')+'）')})
+   .catch(function(e){st('カメラを起動できません: '+e.name+'（ブラウザーのカメラ許可を確認してください）')});
+}
+function ready(m){$('dl').disabled=false;$('send').disabled=!window.opener;st(m+(window.opener?'。「OSに送る」でGAS OSへ渡せます':'。「保存」でダウンロードできます'))}
+$('q').onchange=function(){mode=$('q').value;start()};
+$('ph').onclick=function(){
+  if(!v.videoWidth)return;var hi=mode=='high',c=document.createElement('canvas'),x=c.getContext('2d'),w=v.videoWidth,h=v.videoHeight;
+  if(hi){c.width=Math.min(w,1920);c.height=Math.round(c.width*h/w);x.drawImage(v,0,0,c.width,c.height)}
+  else{c.width=256;c.height=192;var sw=Math.min(w,h*4/3),sh=sw*3/4;x.drawImage(v,(w-sw)/2,(h-sh)/2,sw,sh,0,0,256,192)}
+  c.toBlob(function(b){blob=b;kind='photo';ext='jpg';ready('撮影しました ('+c.width+'×'+c.height+', '+(b.size/1024).toFixed(1)+'KB)')},'image/jpeg',hi?.92:.4);
+};
+$('rc').onclick=function(){
+  if(rec&&rec.state=='recording'){rec.stop();return}
+  if(!stream||!window.MediaRecorder){st('録画できません');return}
+  var hi=mode=='high',mt=['video/webm;codecs=vp8','video/webm','video/mp4'].filter(function(t){return MediaRecorder.isTypeSupported(t)})[0]||'',op={videoBitsPerSecond:hi?2500000:30000};if(mt)op.mimeType=mt;
+  try{rec=new MediaRecorder(stream,op)}catch(e){st('録画を開始できません: '+e.name);return}
+  chunks=[];var sz=0;
+  rec.ondataavailable=function(e){if(e.data&&e.data.size){chunks.push(e.data);sz+=e.data.size}};
+  rec.onstop=function(){clearInterval(rt);$('rc').textContent='● 録画';var type=(rec.mimeType||mt||'video/webm').split(';')[0];blob=new Blob(chunks,{type:type});kind='video';ext=/mp4/.test(type)?'mp4':'webm';ready('録画しました ('+(blob.size/1024).toFixed(1)+'KB)')};
+  rec.start(1000);t0=Date.now();$('rc').textContent='■ 停止';
+  rt=setInterval(function(){var s=(Date.now()-t0)/1000;st('● 録画中 '+s.toFixed(0)+'秒 / '+(sz/1024).toFixed(0)+'KB');if((!hi&&(s>30||sz*1.4>60000))||(hi&&s>60))rec.stop()},500);
+};
+$('send').onclick=function(){
+  if(!blob||!window.opener)return;
+  try{window.opener.postMessage({gasosCam:1,kind:kind,ext:ext,hi:mode=='high',blob:blob},'*');st('GAS OSへ送りました。続けて撮影できます')}catch(e){st('送信に失敗しました。「保存」を使ってください')}
+};
+$('dl').onclick=function(){
+  if(!blob)return;var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(kind=='photo'?'photo_':'video_')+Date.now().toString(36)+'.'+ext;document.body.appendChild(a);a.click();a.remove();
+};
+start();
+</script></body></html>
